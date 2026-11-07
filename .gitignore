@@ -1,0 +1,4 @@
+# R specific files
+.RData
+.Rhistory
+.RDataTmp
