@@ -25,42 +25,26 @@ runSim <- function(
     saveResults = TRUE
 ) {
   
-  stopifnot(
-    T >= 3,
-    d >= 2,
-    d %% 2 == 0,
-    n_rep >= 1,
-    burn_in >= 0,
-    lambda > 0,
-    length(rhoVal) > 0,
-    all(is.finite(rhoVal)),
-    all(rhoVal >= 0 & rhoVal < 1)
-  )
-  
-  # Innovation covariance structures
-  errorTypes <- c(
+  errorTypes <- c(   # Innovation covariance structures
     "block_I",
     "block_II",
     "toeplitz"
   )
   
-  # Generate true A once
-  A <- generate_sparse_A(
+  A <- generate_sparse_A(  # Generate true A once
     d = d,
     spar = spar,
     rho = rho_A,
     seed = seedA
   )
   
-  # Set random seed for simulation
-  set.seed(seedSim)
+  set.seed(seedSim)  # Set random seed for simulation
   
-  # Store simulation results
-  resultsList <- list()
+  resultsList <- list()  # Store simulation results
   k <- 1
   
-  # Repeat experiments
-  for (rep in seq_len(n_rep)) {
+  for (rep in seq_len(n_rep)) {  # Repeat experiments
+
     
     # Generate standard Gaussian random variables
     # Reuse Z across covariance structures
@@ -115,12 +99,10 @@ runSim <- function(
     }
   }
   
-  # Combine all simulation results
-  results <- do.call(rbind, resultsList)
+  results <- do.call(rbind, resultsList)  # Combine all simulation results
   rownames(results) <- NULL
   
-  # Mean excluding missing values
-  safeMean <- function(x) {
+  safeMean <- function(x) {   # Mean excluding missing values
     x <- x[is.finite(x)]
     
     if (length(x) == 0) {
@@ -130,8 +112,7 @@ runSim <- function(
     return(mean(x))
   }
   
-  # Standard deviation excluding missing values
-  safeSD <- function(x) {
+  safeSD <- function(x) {   # Standard deviation excluding missing values
     x <- x[is.finite(x)]
     
     if (length(x) < 2) {
@@ -141,8 +122,7 @@ runSim <- function(
     return(sd(x))
   }
   
-  # Group results by error structure and rho
-  groups <- split(
+  groups <- split(   # Group results by error structure and rho
     results,
     interaction(
       results$errorType,
@@ -151,9 +131,7 @@ runSim <- function(
     )
   )
   
-  # Calculate summary statistics
-  summaryList <- lapply(groups, function(x) {
-    
+  summaryList <- lapply(groups, function(x) {  # Calculate summary statistics
     data.frame(
       errorType = x$errorType[1],
       rho = x$rho[1],
@@ -168,8 +146,7 @@ runSim <- function(
   
   summary <- do.call(rbind, summaryList)
   
-  # Sort summary by error structure and rho
-  summary <- summary[
+  summary <- summary[  # Sort summary by error structure and rho
     order(
       match(summary$errorType, errorTypes),
       summary$rho

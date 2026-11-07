@@ -6,11 +6,11 @@ estLASSO <- function(Y, lambda = 0.05) {
   T <- nrow(Y)
   d <- ncol(Y)
   
-  # Lagged predictors
-  X <- Y[1:(T-1), , drop = FALSE]
+  X <- Y[1:(T-1), , drop = FALSE]  # Lagged predictors
+
   
-  # Response variables
-  repY <- Y[2:T, , drop = FALSE]
+  repY <- Y[2:T, , drop = FALSE]  # Response variables
+
   
   A_hat <- matrix(0, nrow = d, ncol = d)
   

@@ -8,37 +8,24 @@ generate_VAR <- function(
     y0 = NULL
 ) {
   
-  # Check dimensions
-  d <- nrow(A)
-  
-  
-  # Verify stability
-  spec_rad <- max(Mod(eigen(A, only.values = TRUE)$values))
+  d <- nrow(A)  # Check dimensions
 
-  # Initialize starting observation
-  if (is.null(y0)) {
+  spec_rad <- max(Mod(eigen(A, only.values = TRUE)$values))  # Verify stability
+
+  if (is.null(y0)) {  # Initialize starting observation
     y0 <- rep(0, d)
   }
   
-  # Number of innovations
-  n <- nrow(errors)
-  
-  # Initialize time series
-  Y <- matrix(0, nrow = n + 1, ncol = d)
-  
+  n <- nrow(errors)  # Number of innovations
+  Y <- matrix(0, nrow = n + 1, ncol = d)  # Initialize time series
   Y[1, ] <- y0
   
-  # Generate observations recursively
-  for (t in seq_len(n)) {
-    
+  for (t in seq_len(n)) {   # Generate observations recursively
     Y[t + 1, ] <- as.vector(
       A %*% Y[t, ]
     ) + errors[t, ]
-    
   }
   
-  # Remove burn-in observations
-  Y <- Y[(burn_in + 2):(n + 1), , drop = FALSE]
-  
+  Y <- Y[(burn_in + 2):(n + 1), , drop = FALSE]  # Remove burn-in observations
   return(Y)
 }

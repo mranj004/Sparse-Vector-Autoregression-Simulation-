@@ -1,18 +1,17 @@
 
-# 02_generate_errors.R
 # Gaussian VAR(1) innovations following
 # Basu & Michailidis (2015), Section 6.2.
-#
+
 # Covariance structures:
 # 1. Block-I
 # 2. Block-II
 # 3. Toeplitz
-#
+
 # rho = 0.5, 0.7, or 0.9 in the paper.
 # epsilon_t ~ N_d(0, Sigma_e), independent over time.
 
 
-err_cov <- function(
+errCov <- function(
     d,
     type = c("block_I", "block_II", "toeplitz"),
     rho = 0.5
@@ -20,22 +19,14 @@ err_cov <- function(
   
   type <- match.arg(type)
   
-  stopifnot(
-    d >= 2,
-    d %% 2 == 0,
-    rho >= 0,
-    rho < 1
-  )
-  
   Sigma <- diag(d)
   
   first <- seq_len(d / 2)
   second <- (d / 2 + 1):d
   
   if (type == "block_I") {
-    
-    # First half of variables are correlated
-    Sigma[first, first] <- rho
+    Sigma[first, first] <- rho  # First half of variables are correlated
+
     diag(Sigma) <- 1
     
   } else if (type == "block_II") {
@@ -48,9 +39,7 @@ err_cov <- function(
     
   } else if (type == "toeplitz") {
     
-    # Correlation decreases with |i-j|
-    ind <- seq_len(d)
-    
+    ind <- seq_len(d)    # Correlation decreases with |i-j|
     Sigma <- outer(
       ind, ind,
       function(i, j) rho^abs(i - j)
@@ -72,7 +61,7 @@ generate_errors <- function(
   
   type <- match.arg(type)
   
-  Sigma <- err_cov(d, type, rho)
+  Sigma <- errCov(d, type, rho)
   
   if (is.null(Z)) {
     
@@ -88,12 +77,6 @@ generate_errors <- function(
     
   } else {
     
-    stopifnot(
-      is.matrix(Z),
-      is.numeric(Z),
-      all(dim(Z) == c(n, d)),
-      all(is.finite(Z))
-    )
   }
   
   # Transform standard normal observations
