@@ -1,4 +1,3 @@
-
 #Evaluating how well $\hat{A}$ estimates A
 eval_A <- function(
     A,

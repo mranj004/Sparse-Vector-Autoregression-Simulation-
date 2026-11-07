@@ -1,5 +1,3 @@
-
-# 06_run_simulations.R
 # Sparse VAR(1) coefficient recovery under
 # different Gaussian innovation covariance structures
 
@@ -34,7 +32,7 @@ runSim <- function(
   A <- generate_sparse_A(  # Generate true A once
     d = d,
     spar = spar,
-    rho = rho_A,
+    rho_A = rho_A,
     seed = seedA
   )
   
@@ -44,8 +42,6 @@ runSim <- function(
   k <- 1
   
   for (rep in seq_len(n_rep)) {  # Repeat experiments
-
-    
     # Generate standard Gaussian random variables
     # Reuse Z across covariance structures
     Z <- matrix(
@@ -55,10 +51,9 @@ runSim <- function(
     )
     
     for (type in errorTypes) {
-      
       for (rho in rhoVal) {
         
-        # Step 1: Generate innovations
+        #Generate innovations
         E <- generate_errors(
           n = T + burn_in,
           d = d,
@@ -67,33 +62,51 @@ runSim <- function(
           Z = Z
         )
         
-        # Step 2: Generate VAR(1) observations
+        # Generate VAR(1) observations
         Y <- generate_VAR(
           A = A,
           errors = E,
           burn_in = burn_in
         )
         
-        # Step 3: Estimate A using LASSO
-        A_hat <- estLASSO(
+        #Estimate A using baseline lambda=0.05
+        A_hatFixed <- estLASSO(
           Y = Y,
           lambda = lambda
         )
         
-        # Step 4: Evaluate estimation accuracy
-        metrics <- eval_A(A, A_hat)
+        #Adaptive Lambda sparsevar
+        fitSparse <- estSparseVAR(Y)
+        A_hatSparse <- fitSparse$A_hat
+        lambdaSparse <- fitSparse$lambda
         
-        # Step 5: Store results
-        resultsList[[k]] <- data.frame(
-          rep = rep,
-          errorType = type,
-          rho = rho,
-          T = T,
-          d = d,
-          lambda = lambda,
-          metrics
+        #Evaluate estimation accuracy
+        metricsFixed <- eval_A(A, A_hatFixed)
+        metricsSparse <- eval_A(A, A_hatSparse)
+        
+        #Storing results
+        resultsList[[k]] <-  rbind(
+          data.frame(
+            rep = rep,
+            errorType = type,
+            rho = rho,
+            T = T,
+            d = d,
+            method = "glmnet_fixed",
+            lambda = lambda,
+            metricsFixed
+          ),
+          data.frame(
+            rep = rep,
+            errorType = type,
+            rho = rho,
+            T = T,
+            d = d,
+            method = "sparsevar_adaptive",
+            lambda = lambdaSparse,
+            metricsSparse
+          )
         )
-        
         k <- k + 1
       }
     }
@@ -108,11 +121,10 @@ runSim <- function(
     if (length(x) == 0) {
       return(NA_real_)
     }
-    
     return(mean(x))
   }
   
-  safeSD <- function(x) {   # Standard deviation excluding missing values
+  safeSD <- function(x) {   #Standard deviation excluding missing values
     x <- x[is.finite(x)]
     
     if (length(x) < 2) {
@@ -122,19 +134,22 @@ runSim <- function(
     return(sd(x))
   }
   
-  groups <- split(   # Group results by error structure and rho
+  groups <- split(
     results,
     interaction(
+      results$method,
       results$errorType,
       results$rho,
       drop = TRUE
     )
   )
   
-  summaryList <- lapply(groups, function(x) {  # Calculate summary statistics
+  summaryList <- lapply(groups, function(x) {
     data.frame(
+      method = x$method[1],
       errorType = x$errorType[1],
       rho = x$rho[1],
+      meanLambda = safeMean(x$lambda),
       meanRelError = safeMean(x$relError),
       sdRelError = safeSD(x$relError),
       meanMSE = safeMean(x$mse),
@@ -145,20 +160,47 @@ runSim <- function(
   })
   
   summary <- do.call(rbind, summaryList)
-  
-  summary <- summary[  # Sort summary by error structure and rho
+  summary <- summary[
     order(
       match(summary$errorType, errorTypes),
-      summary$rho
+      summary$rho,
+      summary$method
     ),
     ,
     drop = FALSE
   ]
-  
   rownames(summary) <- NULL
   
-  # Save results
-  if (saveResults) {
+  # Construct paired comparisons
+  fixed <- subset(
+    results,
+    method == "glmnet_fixed",
+    select = c(rep, errorType, rho, relError, mse)
+  )
+  
+  adaptive <- subset(
+    results,
+    method == "sparsevar_adaptive",
+    select = c(rep, errorType, rho, relError, mse)
+  )
+  
+  paired <- merge(
+    fixed,
+    adaptive,
+    by = c("rep", "errorType", "rho"),
+    suffixes = c("Fixed", "Adaptive")
+  )
+  
+  # Negative delta means adaptive sparsevar performed better
+  paired$deltaRelError <- (
+    paired$relErrorAdaptive - paired$relErrorFixed
+  )
+  
+  paired$deltaMSE <- (
+    paired$mseAdaptive - paired$mseFixed
+  )
+  
+  if (saveResults) { #saving results
     
     dir.create(
       "results",
@@ -179,6 +221,12 @@ runSim <- function(
     )
     
     write.csv(
+      paired,
+      "results/paired_comparison.csv",
+      row.names = FALSE
+    )
+    
+    write.csv(
       A,
       "results/true_A.csv",
       row.names = FALSE
@@ -188,6 +236,7 @@ runSim <- function(
   return(list(
     A = A,
     results = results,
-    summary = summary
+    summary = summary,
+    paired = paired
   ))
 }

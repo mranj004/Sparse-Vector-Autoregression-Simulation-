@@ -1,4 +1,3 @@
-# 03_generate_VAR.R
 # Simulate VAR(1) using a fixed A and generated innovations
 
 generate_VAR <- function(

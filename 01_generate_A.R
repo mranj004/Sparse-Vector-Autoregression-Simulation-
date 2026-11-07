@@ -2,8 +2,8 @@
 
 generate_sparse_A <- function(
   d = 10,
-  spar = 0.8,
-  rho = 0.8,
+  spar = 0.8, #this controls off-diagonal sparsity
+  rho_A = 0.8,
   seed = NULL #completely optional
 ){
   
@@ -30,7 +30,7 @@ generate_sparse_A <- function(
   
   spec_rad <- max(Mod(eigen(A, only.values =TRUE)$values))
   
-  A <- A * (rho / spec_rad)
+  A <- A * (rho_A / spec_rad)
   
   return(A)
 }
