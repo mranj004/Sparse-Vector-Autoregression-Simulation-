@@ -1,117 +1,89 @@
+
 # Sparse Vector Autoregression Simulation
 
-## Project Goal
+## Project Overview
 
-This GitHub repository aims to see how different Gaussian innovation covariance structures affect the estimation accuracy of sparse Vector Autoregressive (VAR) models. We compare two LASSO-based estimation procedures, which is a fixed regularization parameter $\lambda=0.05$ from \texttt{glmnet} and a data-adaptive regularization parameter selected using \texttt{sparsevar}
-
-For the simulation, we generate data using a known, stable, sparse autoregressive coefficient matrix $A$ in which follows a VAR(1) model
+This project investigates how Gaussian innovation covariance structures affect estimation and support recovery in a sparse vector autoregressive model of order one (VAR(1)):
 
 $$
-Y\_t = AY\_{t-1) + \\epsilon\_t \\quad \\epsilon\_t \\sim N(0, \\Sigma\_{\\epsilon}
+Y_t = A Y_{t-1} + \varepsilon_t, \qquad
+\varepsilon_t \overset{\mathrm{i.i.d.}}{\sim} N_d(0, \Sigma_\varepsilon).
 $$
 
-Inspired by Basu and Michailidis (2015), we consider **Block-I, Block-II, and Toeplitz** for the innovation covariance structures with the correlation parameters 
-$$
-\rho = \\{0.5, 0.7, 0.9\\}
-$$
-
-For each combination of covariance structure and correlation strength, we generate observations from the same true coefficient matrix $A$ and these observations are then used to estimate two coefficient matrices
-- $\hat{A}_{\mathrm{fixed}}$: A row-wise LASSO using $\texttt{glmnet}$ with $\lambda = 0.05$
-- $\hat{A}_{\mathrm{adaptive}}$: LASSO using $\textttt{sparsevar}$ with $\lambda$ selected via time-slice validation
-
-The main goal is to see how each estimated matrix approximates the true matrix $A$ and whether the data-adaptive estimation proceduce improves coefficient recovery under different innovation covariance structures
-
-## Methodology
-Each row of $A$ is estimated using the LASSO estimator
-
-### 1. Data Generation
-We first generate a sparse coefficient matrix $A$ with a spectral radius less than one to esnure the stability of the VAR(1) process
-
-The matrix $A$ remains fixed throughout the experiment. But the innovation covariance matrix $\Sigma_{\epsilon}$ changes according to the selected covariance structure and correlation parameter. 
-
-For each condition, we simulate the observations $Y$ using the VAR(1) data generating process
-
-### 2. Coefficient Estimation
-We compare two LASSO-based estimation procedures.
-
-**Fixed-$\lambda$ LASSO ($\texttt{glmnet}$)**
-$$
-\\hat{a\_i} = \\arg\\min\_{a \\in \\mathbb{R}^d} \\left{\\frac{1}{2T}\\sum\_{t=2}^T(y\_{ti} - a^{\\top{y\_{t-1}}}^2 + \\lambda||a||\_1 \\right} 
-$$
-where $\lambda = 0.05$ is held fixed across the experimental conditions.
-
-**Adaptive-$\lambda$ LASSO ($\texttt{sparsevar}$)**
-We also estiamte the VAR(1) coefficient matrix using the $\texttt{sparsevar}$ package with an L1 penalty. Unlike the fixed estimator, this approach selects its regularization parameter from the data via time-slice validation.
-
-Both of these procedures use the same simulated observation within each experimental condition
- 
-### 3. Evaluation Metrics
-Just like in the paper, the relative Frobenius estimation error is used, which is defined by 
-
-$$
-\frac{|\\hat{A} - A|\_F}{|A|\_F}
-$$
-
-Smaller values imply that the estimated coefficient matrix is closer to the true matrix
-
-MSE, precision, recall, and F1 score is also calculated to assess coefficient support recovery.
+The simulation compares a fixed-penalty LASSO estimator (`glmnet`, with $\lambda = 0.05$) and a time-slice-tuned LASSO estimator (`sparsevar`). The innovation covariance structures are **Block-I**, **Block-II**, and **Toeplitz**. Accuracy is assessed using relative Frobenius error, mean squared error, precision, recall, and F1-score.
 
 ## Repository Structure
+
 | File | Description |
+| --- | --- |
+| `00_requirements.R` | Loads R packages used in the project |
+| `010_download_genomics.R` | Downloads the optional GSE130811 gene-expression dataset |
+| `01_generate_A.R` | Generates a stable, sparse transition matrix $A$ |
+| `02_generate_errors.R` | Generates Gaussian innovations with Block-I, Block-II, or Toeplitz covariance |
+| `03_generate_VAR.R` | Simulates VAR(1) observations using $A$ and the innovations |
+| `04_estimate_A.R` | Estimates $\hat A$ using fixed and time-slice-tuned LASSO |
+| `05_evaluate_A.R` | Calculates coefficient-estimation and support-recovery metrics |
+| `06_run_simulation.R` | Runs the simulation and saves results |
+| `07_SimAnalysis.Rmd` | Analyzes and visualizes the simulation results |
+| `08_DataCleaning.Rmd` | Explores and preprocesses the optional gene-expression dataset |
+| `FinalReport.Rmd` | Source for the written report |
+| `FinalReport.pdf` | Rendered report |
+| `results/` | Saved simulation results and coefficient matrix |
+| `data/` | Raw and processed gene-expression data |
 
-|---|---|
+## Reproducing the Reported Simulation
 
-| `00\_requirements.R` | Loads the required R packages |
+Run the commands below **from the root of the cloned repository** in R or RStudio.
 
-| `01\_generate\_A.R` | Generates a stable, sparse coefficient matrix \\(A\\) |
+### 1. Install required packages
 
-| `02\_generate\_errors.R` | Generates Gaussian innovations with Block-I, Block-II, or Toeplitz covariance |
-
-| `03\_generate\_VAR.R` | Generates VAR(1) observations using \\(A\\) and the innovations |
-
-| `04\_estimate\_A.R` | Estimates \\(\\hat A\\) using row-wise LASSO |
-
-| `05\_evaluate\_A.R` | Evaluates coefficient and support recovery |
-
-| `06\_run\_simulation.R` | Runs repeated experiments across covariance structures and correlation strengths |
-
-
-
-## Reproducing the Simulations
-
-Kindly install the required R packages and run:
+On a fresh R installation, kindly install the CRAN dependencies:
 
 ```r
-source("00\_requirements.R")
-source("06\_run\_simulations.R")
+install.packages(c("glmnet", "sparsevar", "dplyr", "ggplot2", "tidyr", "rmarkdown"))
+```
+
+> **Note:** The current `00_requirements.R` also checks for and loads `GEOquery`, and attempts to install it through Bioconductor if absent. This is needed for the optional genomics work  (not for the VAR simulation itself).
+
+### 2. Run the experiment used in the report
+
+```r
+source("00_requirements.R")
+source("06_run_simulation.R")
 
 sim <- runSim(
-
-&#x20; T = 300,
-
-&#x20; d = 10,
-
-&#x20; spar = 0.8,
-
-&#x20; rho\_A = 0.8,
-
-&#x20; lambda = 0.05,
-
-&#x20; n\_rep = 30,
-
-&#x20; rhoVal = c(0.5, 0.7, 0.9),
-
-&#x20; seedA = 293,
-
-&#x20; seedSim = 123
+  T = 300,
+  d = 500,
+  spar = 1 - (5 / 499),
+  rho_A = 0.8,
+  lambda = 0.05,
+  burn_in = 200,
+  n_rep = 1,
+  rhoVal = 0.7,
+  seedA = 293,
+  seedSim = 123,
+  saveResults = TRUE,
+  keepEstimates = TRUE
 )
 
 print(sim$summary)
 ```
-The experiment consists of nine covariance conditions (three covariance strucures and three correlation strengths), evaluated using two estimation procedures
 
-Results are saved in the `results/` directory.
+### 3. Inspect saved outputs
+
+When `saveResults = TRUE`, the simulation writes the following files to `results/`:
+
+- `simulation_results.csv` — metrics for each estimator and covariance structure
+- `simulation_summary.csv` — condition-level summaries
+- `paired_comparison.csv` — paired differences between the estimators
+- `true_A.csv` — the true transition matrix
+
+To run the analysis notebook, open `07_SimAnalysis.Rmd` in RStudio and knit it. Note that this notebook runs the 500-variable simulation again; its saved results files will be overwritten when the simulation completes.
+
+## Optional Genomic Data Exploration
+
+`08_DataCleaning.Rmd` processes the GSE130811 *C. elegans* gene-expression time series. Its download step is implemented in `010_download_genomics.R`. This analysis is separate from the simulated VAR(1) coefficient-recovery experiment.
 
 ## Reference
-Basu, S., \& Michailidis, G. (2015). Regularized estimation in sparse high-dimensional time series models. \*The Annals of Statistics, 43\*(4), 1535–1567. https://doi.org/10.1214/15-AOS1315
 
+Basu, S., & Michailidis, G. (2015). Regularized estimation in sparse high-dimensional time series models. *The Annals of Statistics, 43*(4), 1535–1567. https://doi.org/10.1214/15-AOS1315
