@@ -1,0 +1,233 @@
+---
+title: "Sparse VAR(1) Simulation Analysis"
+author: "Mihir Ranjan"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+  pdf_document:
+    toc: true
+    number_sections: true
+---
+
+```{r}
+source("00_requirements.R")
+source("06_run_simulation.R")
+```
+
+# 1. Introduction
+
+The goal of this notebook is to answer three questions using visualization:
+
+- How does estimation error change across Block-I, Block-II, Toeplitz and $\rho = \{ 0.5, 0.7, 0.9 \}$ (within the estimatior)
+- Does adapative LASSO recover $A$ more accurately than a fixed LASSO with $\lambda= 0.05$ (Across estimator)
+- What do the actual entries of $\hat{A}$ look like compared to $A$
+
+# 2. Running Simulations
+
+```{r}
+sim <- runSim(
+  T = 300, #number of time-series obs
+  d = 500, # Number of variables in coefficient matrix A
+  spar = 1 - (5 / 499), #proportion of off-diagonals coefficients in A set to zero 
+  rho_A =  0.8, #target spectral radius of A for stability
+  lambda = 0.05, #for glmnet
+  burn_in = 200, #number of initial simulated observations discarded to reduce the influence of the starting value.
+  n_rep = 1, #The number of independent Monte Carlo replications for each covariance condition
+  rhoVal = 0.7, #innovation correlation strength for Block-I, Block-II, and Toeplitz
+  seedA  = 293, #seed for generating coefficient matrix A
+  seedSim = 123, # seed controlling the simulated innovation draws.0
+  saveResults = TRUE, #Saves simulation results, summary statistics, paired comparisons, and the true \(A\) as CSV files.
+  keepEstimates = TRUE #Retains the estimated matrices 
+)
+```
+
+```{r}
+saveRDS(sim, "results/sim_d500.rds") #Simulation took about 25 minutes
+```
+
+```{r}
+# Load existing simulation CSV files
+results <- read.csv("results/simulation_results.csv")
+summaryResults <- read.csv("results/simulation_summary.csv")
+paired <- read.csv("results/paired_comparison.csv")
+
+# Check number of results
+cat("Estimation results:", nrow(results), "\n")
+cat("Paired comparisons:", nrow(paired), "\n")
+
+# Display first few rows
+head(results)
+```
+## Within-estimator analysis
+
+```{r}
+
+withinResults <- results %>%
+  group_by(method, errorType, rho) %>%
+  summarise(
+    relError = first(relError),
+    MSE = first(mse),
+    precision = first(precision),
+    recall = first(recall),
+    F1 = first(f1),
+    .groups = "drop"
+  ) %>%
+  arrange(method, errorType, rho)
+
+withinResults %>%
+  mutate(
+    across(
+      c(relError, MSE, precision, recall, F1),
+      ~ round(.x, 4)
+    )
+  ) %>%
+  print(n = Inf, width = Inf)
+
+```
+
+
+```{r}
+ggplot(
+  results,
+  aes(
+    x = errorType,
+    y = relError,
+    fill = method
+  )
+) +
+  geom_col(
+    position = position_dodge(width = 0.8),
+    width = 0.7,
+    alpha = 0.8
+  ) +
+  labs(
+    title = "Relative Frobenius Error by Estimator",
+    subtitle = "d = 500, T = 300, rho = 0.7 (One Replication)",
+    x = "Innovation Covariance Structure",
+    y = "Relative Frobenius Error",
+    fill = "Estimator"
+  ) +
+  theme_bw()
+
+```
+This bar plot shows that time-slice-tuned LASSO produces a lower relative Frobenius error than fixed LASSO across all three innovation covariance structures at $\rho=0.7$. For both estimators, Block-II produces the highest estimation error while the Toeplitz produces the lowest estimation error. This suggest that the innovation covariance structures influence how accurately the estimated coefficient matrix $\hat{A}$ recovers the true matrix $A$, but this experiment is done at one replication per covariance structure, thus doesn't establish whether the same trends would persist across repeated simulations
+
+## Paired summaries
+
+```{r}
+
+pairedSummary <- paired %>%
+  select(
+    errorType,
+    rho,
+    relErrorFixed,
+    relErrorAdaptive,
+    deltaRelError
+  ) %>%
+  arrange(errorType, rho)
+
+pairedSummary %>%
+  mutate(
+    across(
+      c(relErrorFixed, relErrorAdaptive, deltaRelError),
+      ~ round(.x, 4)
+    )
+  ) %>%
+  print(row.names = FALSE)
+
+```
+
+```{r}
+ggplot(
+  paired,
+  aes(
+    x = errorType,
+    y = deltaRelError,
+    fill = deltaRelError > 0
+  )
+) +
+  geom_col(
+    width = 0.6,
+    alpha = 0.8
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  scale_fill_manual(
+    values = c("TRUE" = "steelblue",
+               "FALSE" = "coral"),
+    labels = c("TRUE" = "Fixed LASSO",
+               "FALSE" = "Time-Slice-Tuned LASSO"),
+    name = "Lower Estimation Error"
+  ) +
+  labs(
+    title = "Paired Difference in Estimation Error",
+    subtitle = "Time-Slice-Tuned LASSO minus Fixed LASSO (d = 500, T = 300)",
+    x = "Innovation Covariance Structure",
+    y = "Difference in Relative Frobenius Error"
+  ) +
+  theme_bw()
+
+```
+The paired comparison table and plot show that the difference in relative Frobenius error between the time-slice-tuned LASSO and fixed LASSO is negative across all three innovation covariance structures. This indicates that time-slice-tuned LASSO produces a lower estimation error than the fixed LASSO in each simulated condition. The largest improvement was in the Toeplitz covariance structure, where the relative Frobenius error decreases by about 0.310, while the smallest improvement occurs under Block-II with a decrease in approximately 0.190. These observations suggest that time-slice-tuned LASSO acheives more accurate coefficient recovery in this VAR(1) simulation. But further replications would need to determine if these differences persist across through independently generated datasets
+## What do the actual entries of $\hat{A}$ look like compared ot A
+
+```{r}
+results <- read.csv("results/simulation_results.csv")
+
+# Reshape recovery metrics into long format
+recoveryData <- reshape(
+  results,
+  varying = c("precision", "recall", "f1"),
+  v.names = "value",
+  timevar = "metric",
+  times = c("Precision", "Recall", "F1"),
+  direction = "long"
+)
+
+recoveryData$method <- factor(
+  recoveryData$method,
+  levels = c("glmnet_fixed", "sparsevar_adaptive"),
+  labels = c("Fixed LASSO", "Time-Slice-Tuned LASSO")
+)
+
+ggplot(
+  recoveryData,
+  aes(
+    x = metric,
+    y = errorType,
+    fill = value
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 1
+  ) +
+  geom_text(
+    aes(label = round(value, 3)),
+    size = 4
+  ) +
+  facet_wrap(~ method) +
+  scale_fill_gradient(
+    low = "white",
+    high = "steelblue",
+    limits = c(0, 1),
+    name = "Score"
+  ) +
+  labs(
+    title = "Coefficient Support Recovery",
+    subtitle = "d = 500, T = 300, rho = 0.7",
+    x = "Recovery Metric",
+    y = "Innovation Covariance Structure"
+  ) +
+  theme_bw()
+
+```
+The heatmap compares coefficient support recovery between fixed and time-slice-tuned LASSO using precision, recall, and F1-score. Across all three innovation covariance structures, fixed LASSO produces higher recall but considerably lower precision than time-slice-tuned LASSO. This suggests that fixed LASSO identifies a larger proportion of the true nonzero coefficients but also produces more false positives relative to its true positives. In contrast, time-slice-tuned LASSO achieves substantially higher precision and F1-scores, indicating a better balance between identifying true nonzero coefficients and avoiding false positives. The highest F1-score for time-slice-tuned LASSO occurs under Block-I, while fixed LASSO achieves its highest F1-score under Block-II. Overall, the results suggest that time-slice-tuned LASSO provides better sparse coefficient support recovery in these particular simulated datasets. However, since only one replication was conducted per covariance structure, further simulations would be needed to determine whether these patterns persist.
+
+# 3. Limitations
+This experiment is conducted using simulated data, meaning that there is no direct real-world evidence that time-slice-tuned LASSO performs better than fixed LASSO. Furthermore, the results are based on a single simulation for each innovation covariance structure, with 500 variables and 300 time points per dataset. Although the plots illustrate differences in estimation accuracy and coefficient support recovery, one replication is insufficient to determine whether these patterns persist across repeated simulations. To strengthen our statistical conclusions, we could conduct additional Monte Carlo replications and construct confidence intervals or perform paired tests on the resulting estimation error differences.
+
+To evaluate whether these findings generalize to real-world applications, we would need to test both estimators on real-world high-dimensional time-series datasets. Additionally, our simulation uses a known coefficient matrix $A$, since we generated it. However, in real-world applications, the true coefficient matrix $A$ is generally unknown, meaning that relative Frobenius estimation error cannot be calculated directly. Instead, we could compare the estimators using out-of-sample forecasting errors.

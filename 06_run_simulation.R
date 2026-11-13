@@ -11,8 +11,8 @@ source("05_evaluate_A.R")
 
 runSim <- function(
     T = 300,
-    d = 10,
-    spar = 0.8,
+    d = 500,
+    spar = 1 - (5/499),
     rho_A = 0.8,
     lambda = 0.05,
     burn_in = 200,
@@ -20,7 +20,8 @@ runSim <- function(
     rhoVal = c(0.5, 0.7, 0.9),
     seedA = 293,
     seedSim = 123,
-    saveResults = TRUE
+    saveResults = TRUE,
+    keepEstimates = TRUE
 ) {
   
   errorTypes <- c(   # Innovation covariance structures
@@ -39,6 +40,8 @@ runSim <- function(
   set.seed(seedSim)  # Set random seed for simulation
   
   resultsList <- list()  # Store simulation results
+  estimatesList <- list()
+  
   k <- 1
   
   for (rep in seq_len(n_rep)) {  # Repeat experiments
@@ -83,7 +86,16 @@ runSim <- function(
         #Evaluate estimation accuracy
         metricsFixed <- eval_A(A, A_hatFixed)
         metricsSparse <- eval_A(A, A_hatSparse)
-        
+        # Save estimated matrices for visual comparisons
+        if (keepEstimates) {
+          estimatesList[[k]] <- list(
+            rep = rep,
+            errorType = type,
+            rho = rho,
+            A_hatFixed = A_hatFixed,
+            A_hatSparse = A_hatSparse
+          )
+        }
         #Storing results
         resultsList[[k]] <-  rbind(
           data.frame(
@@ -237,6 +249,7 @@ runSim <- function(
     A = A,
     results = results,
     summary = summary,
-    paired = paired
+    paired = paired,
+    estimates = estimatesList
   ))
 }

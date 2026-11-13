@@ -7,7 +7,7 @@
 # 3. Toeplitz
 
 # rho = 0.5, 0.7, or 0.9 in the paper.
-# epsilon_t \sim N_d(0, Sigma_e), independent over time.
+# epsilon_t \sim N_d(0, Sigma_e\), independent over time.
 
 
 errCov <- function(

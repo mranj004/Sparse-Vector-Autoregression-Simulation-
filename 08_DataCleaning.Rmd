@@ -1,0 +1,438 @@
+---
+title: "08_DataCleaning"
+output: html_document
+date: "2026-11-11"
+---
+# Data Cleaning for the NCBI dataset
+
+This dataset contains 44 samples from hourly measurements from 5 hours to 48 hours of C. elegans developments
+
+
+```{r}
+source("010_download_genomics.R")
+```
+```{r}
+file_path <- file.path(
+  "data",
+  "GSE130811",
+  "GSE130811_expr_mRNA_CE10_coding.tab.gz"
+)
+
+# Read compressed gene-expression data
+expr_raw <- read.delim(
+  gzfile(file_path),
+  header = TRUE,
+  check.names = FALSE
+)
+
+# Dataset dimensions
+dim(expr_raw)
+```
+The dataset dimensions are $20392 \times 52$
+
+Lets look explore the dataset
+```{r}
+head(expr_raw[, seq_len(min(6, ncol(expr_raw)))]) #looking at first 6 rows and colums
+
+colnames(expr_raw)
+
+str(expr_raw, list.len = 12)
+
+
+```
+```{r}
+sum(is.na(expr_raw))# Total missing values
+
+
+missing_per_column <- colSums(is.na(expr_raw)) # Missing values by column
+
+
+missing_per_column[missing_per_column > 0] # Show columns with missing values
+
+```
+No missing data (hooray!)
+
+```{r}
+numeric_cols <- vapply(
+  expr_raw,
+  is.numeric,
+  logical(1)
+)# Identify numeric columns
+
+sum(numeric_cols)# Number of numeric columns
+
+
+if (any(numeric_cols)) {
+  summary(expr_raw[, numeric_cols, drop = FALSE])
+}# Summary statistics
+
+```
+```{r}
+# Identify the type of each column
+column_info <- data.frame(
+  column = names(expr_raw),
+  type = vapply(expr_raw, typeof, character(1)),
+  example = vapply(
+    expr_raw,
+    function(x) as.character(x[1]),
+    character(1)
+  )
+)
+
+print(column_info, row.names = FALSE)
+```
+
+## Identify Genes and Time Points
+
+The dataset contains raw RNA-seq counts. Before normalization,
+we need to separate the expression measurements from the gene-width
+information and identify the measurement times.
+
+```{r}
+# Extract gene identifiers
+gene_ids <- rownames(expr_raw)
+
+# Remove width column; retain expression counts
+counts <- as.matrix(
+  expr_raw[, -1, drop = FALSE]
+)
+
+rownames(counts) <- gene_ids
+
+# Extract the hour from each column name
+hours <- as.integer(
+  sub("hr.*$", "", colnames(counts))
+)
+
+# Summarize samples and sequencing depths
+sample_info <- data.frame(
+  sample = colnames(counts),
+  hour = hours,
+  total_counts = colSums(counts)
+)
+
+# Inspect gene IDs and count matrix
+head(gene_ids)
+dim(counts)
+
+# Number of measurements at each hour
+table(sample_info$hour)
+
+# Identify hours with repeated measurements
+sample_info[
+  duplicated(sample_info$hour) |
+  duplicated(sample_info$hour, fromLast = TRUE),
+]
+```
+
+## Selecting the Hourly Measurements
+
+The dataset contains 51 RNA-seq measurement columns,
+but only 44 distinct hourly time points. Seven hours
+have additional measurements.
+
+For the initial VAR(1) analysis, we retain one
+measurement per hour, from hour 5 through hour 48,
+and preserve the additional measurements for
+possible future analysis.
+
+```{r}
+hourly_cols <- paste0(5:48, "hr")
+
+# Retain 44 hourly measurements
+counts_hourly <- counts[
+  ,
+  hourly_cols,
+  drop = FALSE
+]
+
+# Store excluded measurements for documentation
+extra_cols <- setdiff(colnames(counts), hourly_cols)
+extra_counts <- counts[, extra_cols, drop = FALSE]
+
+# Inspect dimensions
+dim(counts_hourly)
+extra_cols
+```
+
+## Normalizing Gene Expression Data
+
+The dataset contains raw RNA-seq counts, which may differ
+across samples because of sequencing depth.
+
+To make expression measurements more comparable,
+we normalize the counts using Counts Per Million (CPM)
+and apply a log transformation.
+
+```{r}
+# Calculate total counts for each time point
+library_sizes <- colSums(counts_hourly)
+
+# Examine differences in sequencing depth
+summary(library_sizes)
+
+# Check that every sample has positive total counts
+
+# Normalize counts using CPM
+cpm <- sweep(
+  counts_hourly,
+  2,
+  library_sizes,
+  FUN = "/"
+) * 1e6
+
+# Log2 transformation to reduce skewness
+log_cpm <- log2(cpm + 1)
+
+# Verify dimensions and finite values
+dim(log_cpm)
+
+# Examine normalized expression values
+summary(as.vector(log_cpm))
+```
+
+
+## Filtering Low-Expression Genes
+
+Some genes may have little to no expression throughout
+the developmental period. These genes may contribute
+little useful information to our VAR(1) model.
+
+For our preliminary analysis, we retain genes with
+at least 1 CPM in at least 5 time points.
+
+```{r}
+# Reserve hours 41–48 for future testing
+train_cols <- paste0(5:40, "hr")
+
+# Filter low-expression genes using training data only
+keep_genes <- rowSums(
+  cpm[, train_cols, drop = FALSE] >= 1
+) >= 5
+
+sum(keep_genes)
+sum(!keep_genes)
+
+# Keep all 44 hours for the retained genes
+log_cpm_filtered <- log_cpm[
+  keep_genes,
+  ,
+  drop = FALSE
+]
+
+dim(log_cpm_filtered)
+```
+
+We can also calculate the percentage of genes retained.
+
+```{r}
+retained_pct <- mean(keep_genes) * 100
+
+cat("Percentage of genes retained:",
+    round(retained_pct, 2), "%")
+```
+
+
+## Selecting Highly Variable Genes
+
+After filtering low-expression genes, we examine the
+variability of gene expression across the 44 time points.
+
+For our initial analysis, we select the 100 genes
+with the highest sample variance.
+
+```{r}
+# Set number of genes
+p <- 100
+
+# Calculate variance using training hours only
+gene_var <- apply(
+  log_cpm_filtered[, train_cols, drop = FALSE],
+  1,
+  var
+)
+
+# Select 100 genes with highest variance
+top_genes <- names(
+  sort(gene_var, decreasing = TRUE)
+)[1:p]
+
+# Display first 10 selected genes
+head(data.frame(
+  gene = top_genes,
+  variance = gene_var[top_genes]
+), 10)
+
+# Retain selected genes across all 44 hours
+selected_expr <- log_cpm_filtered[
+  top_genes,
+  ,
+  drop = FALSE
+]
+
+dim(selected_expr)
+```
+
+## Visualizing Gene Expression Over Time
+
+We selected the 100 genes with the largest temporal
+variance. Before fitting a VAR(1) model, we examine
+their expression patterns to assess whether they
+exhibit trends, oscillations, or abrupt changes.
+
+```{r}
+# Plot the first 10 selected genes
+plot_genes <- top_genes[1:10]
+
+plot_data <- data.frame(
+  hour = 5:48,
+  t(selected_expr[plot_genes, , drop = FALSE]),
+  check.names = FALSE
+)
+# Convert to long format
+plot_long <- tidyr::pivot_longer(
+  plot_data,
+  cols = -hour,
+  names_to = "gene",
+  values_to = "expression"
+)
+
+# Plot each gene across time
+ggplot(plot_long, aes(x = hour, y = expression)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  facet_wrap(~ gene, scales = "free_y") +
+  labs(
+    title = "Expression of the 10 Most Variable Genes",
+    x = "Developmental Time (Hours)",
+    y = "log2(CPM + 1)"
+  ) +
+  theme_minimal()
+```
+
+## Examining First Differences
+
+The selected genes exhibit strong developmental
+changes in their expression levels, suggesting
+possible nonstationarity.
+
+We examine first differences to determine whether
+the hourly changes have more stable behavior.
+
+```{r}
+# First differences of log-normalized expression
+diff_expr <- selected_expr[, -1, drop = FALSE] -
+  selected_expr[, -ncol(selected_expr), drop = FALSE]
+
+dim(diff_expr)
+
+# Prepare data for plotting
+# Plot only 10 genes, while differencing all 100
+diff_data <- data.frame(
+  hour = 6:48,
+  t(diff_expr[plot_genes, , drop = FALSE]),
+  check.names = FALSE
+)
+
+diff_long <- tidyr::pivot_longer(
+  diff_data,
+  cols = -hour,
+  names_to = "gene",
+  values_to = "change"
+)
+
+# Plot hourly changes
+ggplot(diff_long, aes(x = hour, y = change)) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "gray50") +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  facet_wrap(~ gene, scales = "free_y") +
+  labs(
+    title = "Hourly Changes in Gene Expression",
+    x = "Developmental Time (Hours)",
+    y = "Change in log2(CPM + 1)"
+  ) +
+  theme_minimal()
+```
+
+
+## Measuring the Developmental Transition
+
+The first-difference plots show substantial changes around
+hours 28–38. We measure the proportion of squared hourly
+changes occurring during this period.
+
+```{r}
+# Hours corresponding to first differences
+diff_hours <- 6:48
+
+# Define the developmental transition window
+transition <- diff_hours >= 28 & diff_hours <= 38
+
+# Sum of squared changes during the transition
+transition_ss <- rowSums(
+  diff_expr[, transition, drop = FALSE]^2
+)
+
+# Sum of squared changes across all hours
+total_ss <- rowSums(diff_expr^2)
+
+# Proportion of squared changes during transition
+transition_fraction <- ifelse(
+  total_ss > 0,
+  transition_ss / total_ss,
+  NA_real_
+)
+
+transition_results <- data.frame(
+  gene = rownames(diff_expr),
+  transition_fraction = round(transition_fraction, 3)
+)
+
+# Summary for all 100 genes
+summary(transition_results$transition_fraction)
+
+# First 10 genes
+head(transition_results, 10)
+```
+
+
+## Preparing the VAR(1) Dataset
+
+The first-differenced expression data contain 43 hourly
+observations for 100 selected genes.
+
+We transpose the matrix so that rows represent time points
+and columns represent genes, as required by our VAR(1)
+estimation functions.
+
+Because several genes exhibit large developmental changes,
+this dataset will be used for exploratory modeling rather
+than assumed to be stationary.
+
+```{r}
+# Transpose: observations x genes
+# Transpose to observations x genes
+Y_diff <- t(diff_expr)
+
+# Add time labels
+rownames(Y_diff) <- paste0(6:48, "hr")
+
+# Check dimensions
+dim(Y_diff)
+
+# Create processed directory
+dir.create(
+  "data/processed",
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# Save the 100-gene dataset
+write.csv(
+  Y_diff,
+  "data/processed/GSE130811_VAR1_differenced_p100.csv"
+)
+
+# Inspect first observations
+head(Y_diff[, 1:5])
+```
